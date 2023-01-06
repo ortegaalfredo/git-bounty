@@ -10,6 +10,13 @@ You can install it using pip in this way:
 
 Or manually by placing git-bounty script in the path. No other file is necessary for operation of the plugin.
 
+## Demo video:
+
+In this video the project owner setup a bounty, and after completion by the bounty hunter, it is paid.
+
+[![Demo Video](https://img.youtube.com/vi/ii1mIlhMKuo/0.jpg)](https://www.youtube.com/watch?v=ii1mIlhMKuo "Git-bounty demo")
+
+
 ## Usage:
 
 You manage bounties using several commands:
