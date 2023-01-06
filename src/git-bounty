@@ -1,0 +1,300 @@
+#!/usr/bin/python3
+
+#
+# git-bounty: git plugin that adds crypto-bounties to projects
+# (c) 2023 Ortega Alfredo @ortegaalfredo 
+#
+
+
+import argparse,configparser,datetime,json,textwrap
+from pathlib import Path
+from web3 import Web3
+from web3 import exceptions
+
+class Data:
+    #Web3 contract object
+    contract:str
+    verbose:bool
+
+# app data storge
+global data
+data = Data()
+version = "V1.1"
+# Simple logging
+def log(message,type):
+    print("[%s] %s" % (type,message))
+
+# Network, account and smart contract initialization
+def init():
+    global config
+    global configA
+    # Project config and account config are separated in two configuration files
+    # So you have to be really stupid to commit your account info
+    configp = configparser.ConfigParser()
+    configpA = configparser.ConfigParser()
+    configfile = 'gitbounty.ini'
+    accountFile = "%s/%s" % (Path.home(),'gitbountyAccount2.ini')
+
+    configp.read(configfile)
+    config=configp['DEFAULT']
+    data.config=config
+    configpA.read(accountFile)
+    configA=configpA['DEFAULT']
+    data.configA=configA
+
+    try: 
+        network = config["network"]
+        acnt = configA["account"]
+        if data.verbose: log("Using network %s, account %s" % (network,acnt) ,"I")
+    except:
+        log("Error reading config. Using defaults" ,"I")
+        ### mainnet BSC network
+        config['network'] = 'https://rpc.ankr.com/bsc' #config['network'] = 'http://localhost:7545'
+        config['defaultcontractaddress'] = ''
+        ### Default Account
+        configA['account'] = '0xdb6152646ef1cB4f66c50dcD8B8126B980E5dbAB'
+        configA['private-key']=''
+        config['coin'] = 'Bnb'
+        #create config
+        with open(configfile,'w') as configfile:
+            configp.write(configfile)
+        with open(accountFile,'w') as accountFile:
+            configpA.write(accountFile)
+        pass
+
+    global web3
+    # Connect to web3 gateway
+    web3=Web3(Web3.HTTPProvider(config['network']))
+    balance = web3.eth.getBalance(configA['account'])
+    if balance >int(0.1*10**18): color="\x1b[1;32m"
+    else: color="\x1b[0m"
+    endcolor="\x1b[0m"
+    log("Blockchain connected: %s. Your account Balance is %s %f %s %s" % (repr(web3.isConnected()),color,web3.fromWei(balance,'ether'),config['coin'],endcolor),'I')
+
+    # Opening contract JSON ABI file
+    #f = open('bounty-contract/build/contracts/Bounty.json')
+    #js = json.load(f)
+    #data.bytecode = js['bytecode']
+    #data.abi = js['abi']
+    # compiled bytecode of Bounty.sol
+    data.bytecode = "608060405234801561001057600080fd5b5061001a3361001f565b61006f565b600080546001600160a01b038381166001600160a01b0319831681178455604051919092169283917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e09190a35050565b61142d8061007e6000396000f3fe6080604052600436106100dd5760003560e01c8063715018a61161007f578063c95d808811610059578063c95d80881461020f578063e283672d1461022f578063e7b0f6661461024f578063f2fde38b1461026557600080fd5b8063715018a6146101b257806377343408146101c75780638da5cb5b146101e757600080fd5b80633d3b5dab116100bb5780633d3b5dab1461013b57806354fd4d501461016857806364d607661461017d5780636bb805a91461019257600080fd5b806306641f7e146100e257806312065fe0146101065780633c1ab2a314610119575b600080fd5b3480156100ee57600080fd5b506003545b6040519081526020015b60405180910390f35b34801561011257600080fd5b50476100f3565b34801561012557600080fd5b5061012e610285565b6040516100fd9190610f57565b34801561014757600080fd5b5061015b610156366004610f6a565b610313565b6040516100fd9190610fa2565b34801561017457600080fd5b506101006100f3565b61019061018b366004611084565b61057a565b005b34801561019e57600080fd5b506100f36101ad366004611140565b6107d2565b3480156101be57600080fd5b5061019061092d565b3480156101d357600080fd5b506101906101e2366004611140565b610941565b3480156101f357600080fd5b506000546040516001600160a01b0390911681526020016100fd565b34801561021b57600080fd5b5061019061022a3660046111a9565b610959565b34801561023b57600080fd5b5061019061024a366004611211565b610d3e565b34801561025b57600080fd5b506100f360015481565b34801561027157600080fd5b5061019061028036600461122c565b610da7565b6002805461029290611247565b80601f01602080910402602001604051908101604052809291908181526020018280546102be90611247565b801561030b5780601f106102e05761010080835404028352916020019161030b565b820191906000526020600020905b8154815290600101906020018083116102ee57829003601f168201915b505050505081565b606060006103218484611297565b67ffffffffffffffff8111156103395761033961109d565b60405190808252806020026020018201604052801561037257816020015b61035f610eca565b8152602001906001900390816103575790505b509050835b838110156105705760038181548110610392576103926112aa565b90600052602060002090600702016040518060e00160405290816000820180546103bb90611247565b80601f01602080910402602001604051908101604052809291908181526020018280546103e790611247565b80156104345780601f1061040957610100808354040283529160200191610434565b820191906000526020600020905b81548152906001019060200180831161041757829003601f168201915b5050509183525050600182015460209091019060ff16600381111561045b5761045b610f8c565b600381111561046c5761046c610f8c565b81526002820154602082015260038201546001600160a01b031660408201526004820180546060909201916104a090611247565b80601f01602080910402602001604051908101604052809291908181526020018280546104cc90611247565b80156105195780601f106104ee57610100808354040283529160200191610519565b820191906000526020600020905b8154815290600101906020018083116104fc57829003601f168201915b505050918352505060058201546020820152600690910154604090910152826105428784611297565b81518110610552576105526112aa565b60200260200101819052508080610568906112c0565b915050610377565b5090505b92915050565b60006003828154811061058f5761058f6112aa565b90600052602060002090600702016040518060e00160405290816000820180546105b890611247565b80601f01602080910402602001604051908101604052809291908181526020018280546105e490611247565b80156106315780601f1061060657610100808354040283529160200191610631565b820191906000526020600020905b81548152906001019060200180831161061457829003601f168201915b5050509183525050600182015460209091019060ff16600381111561065857610658610f8c565b600381111561066957610669610f8c565b81526002820154602082015260038201546001600160a01b0316604082015260048201805460609092019161069d90611247565b80601f01602080910402602001604051908101604052809291908181526020018280546106c990611247565b80156107165780601f106106eb57610100808354040283529160200191610716565b820191906000526020600020905b8154815290600101906020018083116106f957829003601f168201915b505050918352505060058201546020820152600690910154604090910152905060008160200151600381111561074e5761074e610f8c565b146107955760405162461bcd60e51b81526020600482015260126024820152712137bab73a3c9034b9903737ba1037b832b760711b60448201526064015b60405180910390fd5b34600383815481106107a9576107a96112aa565b906000526020600020906007020160020160008282546107c991906112d9565b90915550505050565b60045460009060ff1615610833576000546001600160a01b031633146108335760405162461bcd60e51b8152602060048201526016602482015275436f6e7472616374206973206e6f74207075626c696360501b604482015260640161078c565b61083b610eca565b8281526000602082018190524260a0830152600380546001810182559152815182916007027fc2575a0e9e593c00f959f8c92f12db2869c3395a3b0502d05e2516446f71f85b0190819061088f9082611337565b50602082015160018083018054909160ff19909116908360038111156108b7576108b7610f8c565b02179055506040820151600282015560608201516003820180546001600160a01b0319166001600160a01b03909216919091179055608082015160048201906109009082611337565b5060a0820151600582015560c09091015160069091015560035461092690600190611297565b9392505050565b610935610e20565b61093f6000610e7a565b565b610949610e20565b60026109558282611337565b5050565b610961610e20565b600060038581548110610976576109766112aa565b90600052602060002090600702016040518060e001604052908160008201805461099f90611247565b80601f01602080910402602001604051908101604052809291908181526020018280546109cb90611247565b8015610a185780601f106109ed57610100808354040283529160200191610a18565b820191906000526020600020905b8154815290600101906020018083116109fb57829003601f168201915b5050509183525050600182015460209091019060ff166003811115610a3f57610a3f610f8c565b6003811115610a5057610a50610f8c565b81526002820154602082015260038201546001600160a01b03166040820152600482018054606090920191610a8490611247565b80601f0160208091040260200160405190810160405280929190818152602001828054610ab090611247565b8015610afd5780601f10610ad257610100808354040283529160200191610afd565b820191906000526020600020905b815481529060010190602001808311610ae057829003601f168201915b5050509183525050600582015460208201526006909101546040909101529050600081602001516003811115610b3557610b35610f8c565b14610b775760405162461bcd60e51b81526020600482015260126024820152712137bab73a3c9034b9903737ba1037b832b760711b604482015260640161078c565b6040810151821515600103610b99576003602083015260006040830152610ba1565b600260208301525b6001600160a01b0385166060830152608082018490524260c08301526003805483919088908110610bd457610bd46112aa565b600091825260209091208251600790920201908190610bf39082611337565b50602082015160018083018054909160ff1990911690836003811115610c1b57610c1b610f8c565b02179055506040820151600282015560608201516003820180546001600160a01b0319166001600160a01b0390921691909117905560808201516004820190610c649082611337565b5060a0820151600582015560c0909101516006909101558015610d36578060016000828254610c9391906112d9565b909155505060405160009081906001600160a01b0388169084908381818185875af1925050503d8060008114610ce5576040519150601f19603f3d011682016040523d82523d6000602084013e610cea565b606091505b509150915081610d335760405162461bcd60e51b81526020600482015260146024820152732330b4b632b2103a379039b2b7321022ba3432b960611b604482015260640161078c565b50505b505050505050565b610d46610e20565b60045481151560ff909116151503610d945760405162461bcd60e51b815260206004820152601160248201527024b73b30b634b21037b832b930ba34b7b760791b604482015260640161078c565b6004805460ff1916911515919091179055565b610daf610e20565b6001600160a01b038116610e145760405162461bcd60e51b815260206004820152602660248201527f4f776e61626c653a206e6577206f776e657220697320746865207a65726f206160448201526564647265737360d01b606482015260840161078c565b610e1d81610e7a565b50565b6000546001600160a01b0316331461093f5760405162461bcd60e51b815260206004820181905260248201527f4f776e61626c653a2063616c6c6572206973206e6f7420746865206f776e6572604482015260640161078c565b600080546001600160a01b038381166001600160a01b0319831681178455604051919092169283917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e09190a35050565b6040805160e081019091526060815260208101600081526020016000815260200160006001600160a01b031681526020016060815260200160008152602001600081525090565b6000815180845260005b81811015610f3757602081850181015186830182015201610f1b565b506000602082860101526020601f19601f83011685010191505092915050565b6020815260006109266020830184610f11565b60008060408385031215610f7d57600080fd5b50508035926020909101359150565b634e487b7160e01b600052602160045260246000fd5b60006020808301818452808551808352604092508286019150828160051b8701018488016000805b8481101561107557603f198a8503018652825160e08151818752610ff082880182610f11565b91505089820151600480821061101357634e487b7160e01b865260218152602486fd5b50868b015281890151898701526060808301516001600160a01b0316908701526080808301518783038289015261104a8382610f11565b60a085810151908a015260c09485015194909801939093525050509487019491870191600101610fca565b50919998505050505050505050565b60006020828403121561109657600080fd5b5035919050565b634e487b7160e01b600052604160045260246000fd5b600082601f8301126110c457600080fd5b813567ffffffffffffffff808211156110df576110df61109d565b604051601f8301601f19908116603f011681019082821181831017156111075761110761109d565b8160405283815286602085880101111561112057600080fd5b836020870160208301376000602085830101528094505050505092915050565b60006020828403121561115257600080fd5b813567ffffffffffffffff81111561116957600080fd5b611175848285016110b3565b949350505050565b80356001600160a01b038116811461119457600080fd5b919050565b8035801515811461119457600080fd5b600080600080608085870312156111bf57600080fd5b843593506111cf6020860161117d565b9250604085013567ffffffffffffffff8111156111eb57600080fd5b6111f7878288016110b3565b92505061120660608601611199565b905092959194509250565b60006020828403121561122357600080fd5b61092682611199565b60006020828403121561123e57600080fd5b6109268261117d565b600181811c9082168061125b57607f821691505b60208210810361127b57634e487b7160e01b600052602260045260246000fd5b50919050565b634e487b7160e01b600052601160045260246000fd5b8181038181111561057457610574611281565b634e487b7160e01b600052603260045260246000fd5b6000600182016112d2576112d2611281565b5060010190565b8082018082111561057457610574611281565b601f82111561133257600081815260208120601f850160051c810160208610156113135750805b601f850160051c820191505b81811015610d365782815560010161131f565b505050565b815167ffffffffffffffff8111156113515761135161109d565b6113658161135f8454611247565b846112ec565b602080601f83116001811461139a57600084156113825750858301515b600019600386901b1c1916600185901b178555610d36565b600085815260208120601f198616915b828110156113c9578886015182559484019460019091019084016113aa565b50858210156113e75787850151600019600388901b60f8161c191681555b5050505050600190811b0190555056fea2646970667358221220396b299b3a4a24cb8e0d81ad8c9ece36ea57fb50523c9595ca12a8f58f68acc664736f6c63430008110033"
+    # abi of Bounty.sol
+    data.abi = '[{"inputs": [{"indexed": true, "internalType": "address", "name": "previousOwner", "type": "address"}, {"indexed": true, "internalType": "address", "name": "newOwner", "type": "address"}], "name": "OwnershipTransferred", "type": "event"}, {"inputs": [], "name": "URL", "outputs": [{"internalType": "string", "name": "", "type": "string"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "string", "name": "title", "type": "string"}], "name": "addBounty", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "uint256", "name": "bountyId", "type": "uint256"}, {"internalType": "address", "name": "hunter", "type": "address"}, {"internalType": "string", "name": "message", "type": "string"}, {"internalType": "bool", "name": "Cancelled", "type": "bool"}], "name": "closeBounty", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "uint256", "name": "bountyId", "type": "uint256"}], "name": "fundBounty", "outputs": [], "stateMutability": "payable", "type": "function"}, {"inputs": [], "name": "getBalance", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "uint256", "name": "minId", "type": "uint256"}, {"internalType": "uint256", "name": "maxId", "type": "uint256"}], "name": "getBounties", "outputs": [{"components": [{"internalType": "string", "name": "title", "type": "string"}, {"internalType": "enum Bounty.B_STATUS", "name": "status", "type": "uint8"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}, {"internalType": "address", "name": "paidto", "type": "address"}, {"internalType": "string", "name": "paidtoInfo", "type": "string"}, {"internalType": "uint256", "name": "createdTime", "type": "uint256"}, {"internalType": "uint256", "name": "closedTime", "type": "uint256"}], "internalType": "struct Bounty.TB_entry[]", "name": "", "type": "tuple[]"}], "stateMutability": "view", "type": "function"}, {"inputs": [], "name": "getBountyCount", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"}, {"inputs": [], "name": "owner", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"}, {"inputs": [], "name": "renounceOwnership", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "bool", "name": "isprivate", "type": "bool"}], "name": "setPrivate", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "string", "name": "url", "type": "string"}], "name": "setURL", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [], "name": "totalPaid", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "address", "name": "newOwner", "type": "address"}], "name": "transferOwnership", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [], "name": "version", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"}]'
+    data.contract = web3.eth.contract(address=config['defaultcontractaddress'],abi=data.abi)
+
+# Print bounty status
+def statusToStr(st):
+    if (st==0): return("Open")
+    if (st==1): return("Locked")
+    if (st==2): return("Closed")
+    if (st==3): return("Canceled")
+
+# Test calling the contract
+def testContract():
+   if (config["defaultcontractaddress"]==""):
+        log("Contract address is empty. Create with:\n git bounty create \"My project\"","E")
+        exit(0)
+   try:
+    count=data.contract.functions.getBountyCount().call()
+    balance=data.contract.functions.getBalance().call()
+    paid=data.contract.functions.totalPaid().call()
+    name=data.contract.functions.URL().call()
+    log("Project name: %s" % name,"I")
+    if data.verbose:
+        if count==0:
+            log("Project reports a total of %d bounties, fill it with something, it's new." % (count),"W")
+        else: log("Project reports %d bounties (%d %s total, %d %s paid)" % (count,balance/1e18,config["coin"],paid/1e18,config["coin"]),"I")
+   except:
+        log("Error connecting to bounty contract. Check if the correct address is configured.","E")
+        exit(-1)
+
+# Generic confirmation prompt   
+def confirmation():
+    answer = input("------ Confirm? [yes/no] ")
+    if not (answer.lower() in ["yes"]):
+        log("Not confirmed. Exiting.","I")
+        exit(0)
+
+# Print bounty information
+def issueName(id):
+    try: 
+        bounties=data.contract.functions.getBounties(id-1,id).call()
+    except:
+        log("Bounty Id don't exist.","E")
+        exit(-1)
+    i=bounties[0]
+    createdTime=datetime.datetime.utcfromtimestamp(i[5]).strftime('%Y-%m-%d')
+    closedTime=datetime.datetime.utcfromtimestamp(i[6]).strftime('%Y-%m-%d')
+    print("Title: %s\nCreation: %s\nStatus: %s\nAmount: %.6f %s\n%s" % (i[0],createdTime,statusToStr(i[1]),i[2]/1e18,config['coin'],i[4]),"")
+
+# Send transaction and wait for receipt
+def sendTransaction(fcall,value=0):
+          transaction = fcall.buildTransaction({
+                                               'value': value,
+                                               'nonce': web3.eth.get_transaction_count(configA["account"]),
+                                               "gasPrice": web3.eth.gas_price
+                                               })
+          private_key = configA['private-key']
+          signed_txn = web3.eth.account.signTransaction(transaction, private_key=private_key)
+          tx_hash=web3.eth.sendRawTransaction(signed_txn.rawTransaction)
+          if data.verbose: log("Transaction sent. Waiting for receipt...","I")
+          receipt=web3.eth.wait_for_transaction_receipt(tx_hash)
+          log("Transaction executed successfully.","I")
+          return receipt
+
+# Main function
+if __name__ == '__main__':
+    # Parse the arguments
+    epil = textwrap.dedent('''\
+        Commands available:
+
+                create: Creates a new bounty program. 
+                        Example: git bounty create "Test project"
+
+                add:    Adds a bounty. Amount is optional.
+                        Example: git bounty add "Fix issue #43" --amount 200
+
+                pay:    Pays a bounty, sending the funds to the specified address.
+                        Example: git bounty pay --id 1 --address 0xXXXXXXXXX  
+
+                cancel: Cancels a bounty, returning the funds to contract owner.
+                        Example: git bounty cancel --id 1
+
+                list:   List all open bounties in the current project.
+                        Example: git bounty list
+                
+                fund:   Send money to an existing bounty.
+                        Example: git fund --id 1 --amount 100
+        ''')
+    parser = argparse.ArgumentParser(prog = 'git bounty', description = 'Bounty system for git %s (c) 2023 Alfredo Ortega @ortegaalfredo' % version ,formatter_class=argparse.RawTextHelpFormatter,  epilog = epil)
+    parser.add_argument("command", type=str, default="")
+    parser.add_argument("title", nargs="?")
+    parser.add_argument("-m", "--amount", type=float, default=0, help="Amount to assign to bounty")
+    parser.add_argument("-i", "--id", type=int, default=0, help="Bounty ID")
+    parser.add_argument("-d", "--address", type=str, default="", help="Pay address")
+    parser.add_argument("-a", "--all", action="store_true", help="List all bounties, including closed.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
+    try: 
+        data.verbose = False
+        args = parser.parse_args()
+    except:
+        init()
+        exit(0)
+    data.verbose = args.verbose
+
+    # Connect to blockchain
+    init()
+
+    if args.command!="create": 
+        testContract()
+    # ----- git bounty Create ------
+    if args.command=="create":
+        log("Creating bounty program for project '%s'" % (args.title) ,"I")
+        confirmation()
+        bounty =  web3.eth.contract(abi=data.abi, bytecode=data.bytecode)
+        try:
+            tx_hash = bounty.constructor()
+            tx_receipt = sendTransaction(tx_hash)
+        except exceptions.SolidityError as error:
+            log(error,"E")
+        log("New bounty contract address is %s" % tx_receipt.contractAddress,"I")
+        config["defaultContractAddress"] = tx_receipt.contractAddress
+        if (args.title):
+            try:
+                data.contract = web3.eth.contract(address=config['defaultcontractaddress'],abi=data.abi)
+                fcall=data.contract.functions.setURL(args.title)
+                sendTransaction(fcall)
+            except exceptions.SolidityError as error:
+                log(error,"E")
+        log("Write new contract info to local config file?","I")
+        confirmation()
+        configfile = 'gitbounty.ini'
+        configp = configparser.ConfigParser()
+        configp['DEFAULT']=config
+        with open(configfile,'w') as cfile:
+            configp.write(cfile)
+        log("Done. Don't forget to commit the file %s to your project." % configfile,"I")
+
+    # ----- git bounty add ------
+    elif args.command=="add":
+        log("Adding bounty '%s' with amount %.6f %s" % (args.title,args.amount,config['coin']) ,"I")
+        confirmation()
+        fcall=data.contract.functions.addBounty(args.title)
+        sendTransaction(fcall)
+        bid=fcall.call()
+        log("Bounty created successfully. Bounty Id is %d" % bid,"I")
+        if (args.amount>0):
+            log("Sending %.6f %s to bounty %d" % (args.amount,config['coin'],bid) ,"I")
+            fcall=data.contract.functions.fundBounty(bid-1)
+            try:
+                sendTransaction(fcall,value=int(args.amount*(10**18)))
+            except (exceptions.SolidityError,ValueError) as error:
+                log(str(error),"E")
+    # -----  git bounty cancel -----
+    elif args.command=="cancel":
+        if (args.address == ""):
+            log("Address required to return funds (--address)","E")
+            args.address = configA['account']
+            log("Returning funds to owner account (%s)" % args.address,"I")
+        if (args.id==0):
+            log("Bounty ID required (--id)","E")
+            exit(-1)
+        if (args.title == None): args.title=""
+        log("Cancelling bounty %d, returning funds to %s:" % (args.id,args.address),"I")
+        issueName(args.id)
+        confirmation()
+        fcall=data.contract.functions.closeBounty(args.id-1,args.address,args.title,True)
+        try:
+            sendTransaction(fcall)
+        except exceptions.SolidityError as error:
+            log(error,"E")
+    # -----  git bounty pay -----
+    elif args.command=="pay":
+        if (args.address == ""):
+            log("Address required to pay funds (--address)","E")
+            exit(-1)
+        if (args.id==0):
+            log("Bounty ID required (--id)","E")
+            exit(-1)
+        if (args.title == None): args.title=""
+        log("Paying and closing bounty Id %d, sending funds to %s:" % (args.id,args.address),"I")
+        issueName(args.id)
+        confirmation()
+        fcall=data.contract.functions.closeBounty(args.id-1,args.address,args.title,False)
+        try: 
+            sendTransaction(fcall)
+        except exceptions.SolidityError as error:
+            log(error,"E")
+    # ----- git bounty list
+    elif args.command=="list":
+        count=data.contract.functions.getBountyCount().call()
+        bounties=data.contract.functions.getBounties(0,count).call()
+        print("Id\tCreated\t\tTitle\t\t\t\tStatus\tAmount\tInfo")
+        cnt=0
+        totalFunds=0
+        for i in bounties:
+            if not args.all:
+                if i[1]!=0:
+                    continue
+            cnt+=1
+            createdTime=datetime.datetime.utcfromtimestamp(i[5]).strftime('%Y-%m-%d')
+            closedTime=datetime.datetime.utcfromtimestamp(i[6]).strftime('%Y-%m-%d')
+            print("%04d\t%s\t%s\t\t\t%s\t%.6f %s\t%s" % (cnt,createdTime,i[0],statusToStr(i[1]),i[2]/1e18,config['coin'],i[4]))
+            totalFunds+=i[2]
+        print ("Total bounty funds locked: %.2f %s." % (totalFunds/1e18,config["coin"]))
+    # ----- git bounty fund
+    elif args.command=="fund":
+        if (args.id==0):
+            log("Bounty Id required (--id)","E")
+            exit(-1)
+        if (args.amount>0):
+            log("Funding bounty %d with %.6f %s:" % (args.id,args.amount,config['coin']),"I")
+            issueName(args.id)
+            confirmation()
+            fcall=data.contract.functions.fundBounty(args.id-1)
+            try: 
+                sendTransaction(fcall,value=int(args.amount*(10**18)))
+            except exceptions.SolidityError as error:
+                log(error,"E")
+        else: log("Amount required (--amount)","E")
+    else: log("Unknown command '%s'" % args.command,"E")
